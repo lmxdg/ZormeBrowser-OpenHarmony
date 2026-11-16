@@ -1,0 +1,33 @@
+# 依赖
+/node_modules
+/oh_modules
+/entry/oh_modules
+**/node_modules
+**/oh_modules
+
+# 构建产物
+**/build/
+/.hvigor/
+/dist/
+*.hap
+*.har
+*.hsp
+
+# 本地配置
+local.properties
+/.idea
+/.clangd
+/.clang-format
+/.clang-tidy
+/.cxx
+/.preview
+/.appanalyzer
+/.test
+oh-package-lock.json5
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 签名产物（由 build.sh 生成）
+/signature/profile.p7b

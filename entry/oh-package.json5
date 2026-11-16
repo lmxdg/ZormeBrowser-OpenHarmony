@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Zorme 浏览器主模块",
+  "main": "",
+  "author": "Zorme",
+  "license": "MIT",
+  "dependencies": {}
+}

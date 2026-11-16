@@ -1,0 +1,5 @@
+# Zorme 浏览器混淆规则（默认关闭）
+-enable-property-obfuscation
+-enable-toplevel-obfuscation
+-enable-filename-obfuscation
+-enable-export-obfuscation

@@ -1,0 +1,11 @@
+{
+  "modelVersion": "7.0.0",
+  "name": "zorme-browser-openharmony",
+  "version": "1.0.0",
+  "description": "Zorme 浏览器 OpenHarmony 版",
+  "main": "",
+  "author": "Zorme",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}
