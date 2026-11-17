@@ -102,14 +102,15 @@ export class BingTranslate {
 
   /** 把一组文本翻译并对齐到相同长度 */
   private static async pieces(texts: string[], to: string): Promise<string[]> {
-    let text: string = await BingTranslate.post(texts.join('\n'), to);
-    if (text.length === 0) {
+    let text: string | null = await BingTranslate.post(texts.join('\n'), to);
+    if (text === null) {
       // token 可能过期，强制刷新后重试一次
       if (await BingTranslate.ensure(true)) {
         text = await BingTranslate.post(texts.join('\n'), to);
       }
     }
-    if (text.length === 0) {
+    // 请求本身失败：不再二分放大请求量，直接保留原文
+    if (text === null || text.length === 0) {
       const blank: string[] = [];
       for (let i = 0; i < texts.length; i++) {
         blank.push('');
@@ -238,10 +239,10 @@ export class BingTranslate {
     }
   }
 
-  /** 发送一次翻译请求，返回译文；失败返回空串 */
-  private static async post(text: string, to: string): Promise<string> {
+  /** 发送一次翻译请求；成功返回译文（可能为空串），请求失败返回 null */
+  private static async post(text: string, to: string): Promise<string | null> {
     if (BingTranslate.ig.length === 0 || BingTranslate.token.length === 0) {
-      return '';
+      return null;
     }
     const req: http.HttpRequest = http.createHttp();
     try {
@@ -257,7 +258,7 @@ export class BingTranslate {
         readTimeout: 40000
       });
       if (resp.responseCode !== 200) {
-        return '';
+        return null;
       }
       const raw: string = resp.result as string;
       const blocks: TransBlock[] = JSON.parse(raw) as TransBlock[];
@@ -271,7 +272,7 @@ export class BingTranslate {
       const val: string = tr[0].text;
       return val !== undefined && val !== null ? val : '';
     } catch (e) {
-      return '';
+      return null;
     } finally {
       req.destroy();
     }
