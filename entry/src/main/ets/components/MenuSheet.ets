@@ -42,8 +42,8 @@ export struct MenuSheet {
     list.push(new MenuTile('ic_desktop', this.desktop ? '手机版' : '桌面版', 'desktop'));
     list.push(new MenuTile('ic_search', '页内查找', 'find'));
     list.push(new MenuTile('ic_reader', '阅读模式', 'reader'));
+    list.push(new MenuTile('ic_translate', '翻译网页', 'translate'));
     list.push(new MenuTile('ic_code', '网页源码', 'source'));
-    list.push(new MenuTile('ic_network', '网络日志', 'netlog'));
     list.push(new MenuTile('ic_lock', '网站证书', 'ssl'));
     list.push(new MenuTile('ic_share', '分享', 'share'));
     list.push(new MenuTile('ic_settings', '设置', 'settings'));

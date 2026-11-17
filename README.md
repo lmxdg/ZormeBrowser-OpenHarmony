@@ -32,10 +32,10 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/lmxdg/ZormeBrowser-OpenHarmony/releases) 下载 `ZormeBrowser-1.0.0.hap`，通过 hdc 安装：
+前往 [Releases](https://github.com/lmxdg/ZormeBrowser-OpenHarmony/releases) 下载 `ZormeBrowser-1.1.0.hap`，通过 hdc 安装：
 
 ```bash
-hdc install ZormeBrowser-1.0.0.hap
+hdc install ZormeBrowser-1.1.0.hap
 ```
 
 也可以在应用内检查更新：**菜单 → 设置 → 关于 → 检查更新**，会读取 GitHub Releases 最新版本号并与本地版本比较，支持切换下载加速站（直连 / ghfast.top / ghproxy.net）。
@@ -59,6 +59,11 @@ hdc install ZormeBrowser-1.0.0.hap
 - **网络日志**：记录页面加载的资源请求（方法 / URL / 主文档或子资源 / 是否被广告拦截），仅存内存，退出即清空
 - **页内查找**：关键字高亮、上一处 / 下一处、匹配计数
 - **阅读模式**：注入脚本抽取正文，去除干扰元素
+- **网页翻译**：接入必应翻译（Bing Translator），把整页正文按段落译成中文（可选 12 种目标语言）
+  - 按块级容器合并文本节点再翻译，`<p>Visit <a>the site</a> now.</p>` 不会被拆成语序错乱的碎片
+  - 自动跳过代码块、输入框、`translate=no` 元素与纯中文段落
+  - 逐批翻译并显示进度，可随时停止；一键「原文」还原；切回标签仍保留翻译条
+  - 无需 API Key：复用必应翻译网页的公开接口，token 本地缓存并自动刷新
 
 **隐私与外观**
 - 广告与追踪域名拦截（内置规则表 `rawfile/ad_hosts.txt`，设置中可开关）
@@ -127,7 +132,7 @@ ZormeBrowser-OpenHarmony/
 │   │   ├── components/
 │   │   │   ├── TabWeb.ets         # 单标签 Web 组件与回调
 │   │   │   ├── HomeView.ets       # 起始页
-│   │   │   ├── MenuSheet.ets      # 16 格功能菜单
+│   │   │   ├── MenuSheet.ets      # 功能菜单面板
 │   │   │   ├── AddressOverlay.ets # 地址栏浮层与建议
 │   │   │   ├── TabsOverlay.ets    # 标签管理
 │   │   │   ├── SettingsView.ets   # 设置页
@@ -137,9 +142,9 @@ ZormeBrowser-OpenHarmony/
 │   │   │   ├── NetLogView.ets     # 网络日志
 │   │   │   ├── ZIcon.ets          # SVG 单色图标
 │   │   │   └── ZSwitch.ets        # 自绘开关
-│   │   ├── model/                 # Prefs / Store / AdBlocker / AiClient / SslInfo ...
+│   │   ├── model/                 # Prefs / Store / AdBlocker / AiClient / SslInfo / BingTranslate ...
 │   │   └── common/                # 主题色板与工具函数
-│   └── resources/rawfile/         # 36 个图标 SVG、广告域名表
+│   └── resources/rawfile/         # 图标 SVG、广告域名表、翻译注入脚本
 ├── signature/                     # 签名描述文件模板
 ├── build.sh                       # 构建 + 签名脚本
 └── docs/icon.png

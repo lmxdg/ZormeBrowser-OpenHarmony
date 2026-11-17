@@ -8,6 +8,7 @@ import { AdBlocker } from '../model/AdBlocker';
 import { NetLog } from '../model/NetLog';
 import { Agreement } from '../model/Agreement';
 import { AiProvider } from '../model/AiProvider';
+import { BingTranslate } from '../model/BingTranslate';
 import { ZIcon } from './ZIcon';
 import { ZSwitch } from './ZSwitch';
 
@@ -125,6 +126,8 @@ export struct SettingsView {
   };
   dialogAlert: (title: string, message: string) => void = () => {
   };
+  onNetLog: () => void = () => {
+  };
   checkUpdate: () => void = () => {
   };
   clearCache: () => void = () => {
@@ -195,6 +198,15 @@ export struct SettingsView {
         Prefs.setSearchEngine(SearchEngine.ALL[which].id);
         this.refresh();
         this.toast('搜索引擎已切换为 ' + SearchEngine.ALL[which].name);
+      });
+  }
+
+  private chooseTransLang(): void {
+    this.dialogChoice('网页翻译为', BingTranslate.LANGS,
+      BingTranslate.indexOf(Prefs.transLang()), (which: number) => {
+        Prefs.setTransLang(BingTranslate.codeOf(which));
+        this.refresh();
+        this.toast('网页将翻译为' + BingTranslate.LANGS[which]);
       });
   }
 
@@ -308,6 +320,14 @@ export struct SettingsView {
             pal: this.pal, title: '搜索引擎', desc: '地址栏搜索时使用', value: SearchEngine.get().name,
             onTap: () => {
               this.chooseEngine();
+            }
+          })
+          Divider().color(this.pal.divider).strokeWidth(1).margin({ left: 20 })
+          SettingTextRow({
+            pal: this.pal, title: '网页翻译', desc: '使用必应翻译，译为目标语言',
+            value: BingTranslate.nameOf(Prefs.transLang()),
+            onTap: () => {
+              this.chooseTransLang();
             }
           })
           Divider().color(this.pal.divider).strokeWidth(1).margin({ left: 20 })
@@ -514,7 +534,14 @@ export struct SettingsView {
 
           this.section('关于')
           SettingTextRow({
-            pal: this.pal, title: '检查更新', desc: '拉取 GitHub 最新发布版本对比', value: '1.0.0',
+            pal: this.pal, title: '网络日志', desc: '查看当前标签页的网络请求记录', value: '',
+            onTap: () => {
+              this.onNetLog();
+            }
+          })
+          Divider().color(this.pal.divider).strokeWidth(1).margin({ left: 20 })
+          SettingTextRow({
+            pal: this.pal, title: '检查更新', desc: '拉取 GitHub 最新发布版本对比', value: '1.1.0',
             onTap: () => {
               this.checkUpdate();
             }
@@ -523,7 +550,7 @@ export struct SettingsView {
           SettingTextRow({
             pal: this.pal, title: '关于 Zorme', desc: '基于 OpenHarmony ArkWeb 的轻量浏览器', value: '',
             onTap: () => {
-              this.dialogAlert('Zorme 浏览器', '版本 1.0.0\n\n'
+              this.dialogAlert('Zorme 浏览器', '版本 1.1.0\n\n'
                 + '基于 OpenHarmony ArkWeb 构建的轻量浏览器。\n\n'
                 + '· 多标签浏览与标签恢复\n· 广告与追踪域名拦截\n'
                 + '· 夜间模式 / 无图模式 / 浏览器标识(UA)\n'

@@ -13,6 +13,8 @@ export class TabMeta {
   errorDesc: string = '';
   attached: boolean = false;
   pendingUrl: string = '';
+  /** 当前页面是否已由必应翻译（用于切回标签时恢复翻译条） */
+  translated: boolean = false;
 
   constructor(id: number, incognito: boolean, url: string) {
     this.id = id;

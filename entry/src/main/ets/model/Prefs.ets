@@ -28,6 +28,7 @@ export class Prefs {
   static readonly KEY_NET_LOG: string = 'net_log';
   static readonly KEY_UA_MODE: string = 'ua_mode';
   static readonly KEY_UA_CUSTOM: string = 'ua_custom';
+  static readonly KEY_TRANS_LANG: string = 'trans_lang';
 
   static readonly UA_DEFAULT: number = 0;
   static readonly UA_DESKTOP: number = 1;
@@ -302,5 +303,15 @@ export class Prefs {
       return c.length > 0 ? c : fallback;
     }
     return fallback;
+  }
+
+  /** 网页翻译的目标语言（必应语言代码） */
+  static transLang(): string {
+    const v: string = Prefs.getString(Prefs.KEY_TRANS_LANG, 'zh-Hans');
+    return v.length > 0 ? v : 'zh-Hans';
+  }
+
+  static setTransLang(code: string): void {
+    Prefs.putString(Prefs.KEY_TRANS_LANG, code ? code : 'zh-Hans');
   }
 }

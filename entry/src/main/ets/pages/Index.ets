@@ -14,6 +14,8 @@ import { NetLog } from '../model/NetLog';
 import { Agreement } from '../model/Agreement';
 import { TabMeta } from '../model/TabMeta';
 import { SslInfo } from '../model/SslInfo';
+import { BingTranslate, TransResult } from '../model/BingTranslate';
+import { TranslateScript } from '../model/TranslateScript';
 import { UpdateChecker } from '../model/UpdateChecker';
 import { TabWeb, TabCallbacks } from '../components/TabWeb';
 import { SettingsView } from '../components/SettingsView';
@@ -27,6 +29,15 @@ import { AddressOverlay } from '../components/AddressOverlay';
 import { TabsOverlay } from '../components/TabsOverlay';
 import { ZIcon } from '../components/ZIcon';
 import { SuggestionItem, DialogOption } from '../components/Models';
+
+/** 翻译注入脚本 collect() 的返回结构 */
+interface PageTexts {
+  ok: boolean;
+  total: number;
+  items: string[];
+  cached?: boolean;
+  error?: string;
+}
 
 @Entry
 @Component
@@ -63,6 +74,12 @@ struct Index {
   @State listMode: string = 'bookmarks';
   @State sourceTitle: string = '';
   @State sourceText: string = '';
+  @State transShown: boolean = false;
+  @State transBusy: boolean = false;
+  @State transDone: number = 0;
+  @State transTotal: number = 0;
+  @State transLang: string = '简体中文';
+  @State transTranslated: boolean = false;
 
   private controllers: Map<number, webview.WebviewController> = new Map<number, webview.WebviewController>();
   private nextTabId: number = 1;
@@ -75,6 +92,9 @@ struct Index {
   private lastBack: number = 0;
   private toastTimer: number = -1;
   private pendingJs: JsResult | null = null;
+  /** 翻译任务代号，自增即取消 */
+  private transToken: number = 0;
+  private netLogBack: string = 'browser';
 
   private webCallbacks: TabCallbacks = {
     onAttached: (id: number) => {
@@ -306,6 +326,11 @@ struct Index {
       meta.url = url;
       meta.showingHome = false;
     }
+    const cur: TabMeta | null = this.cur();
+    if (cur !== null && cur.id === id) {
+      meta.translated = false;
+      this.resetTrans();
+    }
     this.touchTabs();
   }
 
@@ -393,7 +418,14 @@ struct Index {
     }
     this.current = index;
     this.tabsShown = false;
-    this.refreshTabState(this.tabs[index].id);
+    this.resetTrans();
+    const meta: TabMeta = this.tabs[index];
+    if (meta.translated) {
+      this.transShown = true;
+      this.transTranslated = true;
+      this.transLang = BingTranslate.nameOf(Prefs.transLang());
+    }
+    this.refreshTabState(meta.id);
     this.saveSession();
   }
 
@@ -668,9 +700,12 @@ struct Index {
       this.showFind();
     } else if (action === 'reader') {
       this.readerMode();
+    } else if (action === 'translate') {
+      this.translatePage();
     } else if (action === 'source') {
       this.viewSource();
     } else if (action === 'netlog') {
+      this.netLogBack = 'browser';
       this.screen = 'netlog';
     } else if (action === 'ssl') {
       this.showSslInfo();
@@ -729,8 +764,192 @@ struct Index {
     this.toast('链接已复制到剪贴板');
   }
 
-  private readerMode(): void {
-    const t: TabMeta | null = this.cur();
+  /** 在页面里执行一段 JS，返回值转成字符串 */
+  private jsRun(ctrl: webview.WebviewController, js: string): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      try {
+        ctrl.runJavaScript(js, (err: Error, value: string) => {
+          resolve(value !== undefined && value !== null ? value : '');
+        });
+      } catch (e) {
+        resolve('');
+      }
+    });
+  }
+
+  private parsePageTexts(raw: string): PageTexts {
+    const empty: PageTexts = { ok: false, total: 0, items: [] };
+    if (!raw || raw.length === 0) {
+      return empty;
+    }
+    try {
+      const obj: PageTexts = JSON.parse(raw) as PageTexts;
+      if (obj === null || obj === undefined) {
+        return empty;
+      }
+      if (obj.items === undefined || obj.items === null) {
+        obj.items = [];
+      }
+      return obj;
+    } catch (e) {
+      return empty;
+    }
+  }
+
+  /** 用必应翻译整页：抽取文本节点 → 分批翻译 → 回填 */
+  private async translatePage(): Promise<void> {
+    const tab: TabMeta | null = this.cur();
+    if (tab === null || tab.showingHome || !tab.url) {
+      this.toast('请先打开一个网页');
+      return;
+    }
+    if (this.transBusy) {
+      this.toast('正在翻译，请稍候');
+      return;
+    }
+    const ctx = getContext(this) as common.UIAbilityContext;
+    const lib: string = TranslateScript.libScript(ctx);
+    if (lib.length === 0) {
+      this.toast('翻译脚本加载失败');
+      return;
+    }
+    const ctrl: webview.WebviewController = this.controllerOf(tab.id);
+    const code: string = Prefs.transLang();
+    this.transLang = BingTranslate.nameOf(code);
+    this.transShown = true;
+    this.transBusy = true;
+    this.transDone = 0;
+    this.transTotal = 0;
+    this.transTranslated = false;
+    const token: number = ++this.transToken;
+
+    // 清掉上次的译文，再注入脚本
+    await this.jsRun(ctrl, TranslateScript.restore());
+    await this.jsRun(ctrl, lib);
+    if (token !== this.transToken) {
+      return;
+    }
+    const raw: string = await this.jsRun(ctrl, TranslateScript.collect());
+    if (token !== this.transToken) {
+      return;
+    }
+    const page: PageTexts = this.parsePageTexts(raw);
+    if (!page.ok) {
+      this.endTranslate(false);
+      this.toast('当前页面无法翻译');
+      return;
+    }
+    if (page.total <= 0) {
+      this.endTranslate(false);
+      this.toast('页面没有需要翻译的内容');
+      return;
+    }
+    this.transTotal = page.total;
+    const items: string[] = page.items;
+    let index: number = 0;
+    let okCount: number = 0;
+    let detected: string = '';
+    while (index < items.length) {
+      if (token !== this.transToken) {
+        return;
+      }
+      // 按累计字符数切批：单次请求不超过 3000 字，最多 40 段
+      let end: number = index;
+      let chars: number = 0;
+      while (end < items.length && end - index < 40 && chars < 3000) {
+        chars += items[end].length + 1;
+        end++;
+      }
+      if (end === index) {
+        end = index + 1;
+      }
+      const slice: string[] = items.slice(index, end);
+      const res: TransResult = await BingTranslate.translateBatch(slice, code);
+      if (token !== this.transToken) {
+        return;
+      }
+      if (!res.ok) {
+        this.endTranslate(false);
+        this.toast(res.error.length > 0 ? res.error : '翻译失败，请稍后重试');
+        return;
+      }
+      if (detected.length === 0 && res.detected.length > 0) {
+        detected = res.detected;
+      }
+      if (res.texts.length === slice.length) {
+        await this.jsRun(ctrl, TranslateScript.apply(index, res.texts));
+        okCount += res.texts.length;
+      }
+      index = end;
+      this.transDone = okCount;
+    }
+    if (token !== this.transToken) {
+      return;
+    }
+    if (okCount === 0) {
+      this.endTranslate(false);
+      this.toast('翻译失败，请稍后重试');
+      return;
+    }
+    this.transBusy = false;
+    this.transTranslated = true;
+    tab.translated = true;
+    if (detected === code) {
+      this.toast('页面本身已是' + this.transLang);
+    } else {
+      this.toast('已翻译 ' + okCount.toString() + ' 段');
+    }
+  }
+
+  private endTranslate(translated: boolean): void {
+    this.transBusy = false;
+    this.transTranslated = translated;
+    if (!translated) {
+      this.transShown = false;
+    }
+  }
+
+  /** 停止翻译：作废当前任务，已翻部分保留 */
+  private stopTranslate(): void {
+    this.transToken++;
+    this.transBusy = false;
+    const has: boolean = this.transDone > 0;
+    this.transTranslated = has;
+    this.transShown = has;
+    const tab: TabMeta | null = this.cur();
+    if (has && tab !== null) {
+      tab.translated = true;
+    }
+    this.toast(has ? '已停止翻译' : '已取消翻译');
+  }
+
+  /** 还原为原文 */
+  private restoreTranslate(): void {
+    this.transToken++;
+    const tab: TabMeta | null = this.cur();
+    this.transBusy = false;
+    this.transTranslated = false;
+    this.transShown = false;
+    if (tab !== null) {
+      tab.translated = false;
+      this.jsRun(this.controllerOf(tab.id), TranslateScript.restore());
+    }
+    this.toast('已恢复原文');
+  }
+
+  /** 换页 / 换标签时丢掉翻译条 */
+  private resetTrans(): void {
+    if (this.transShown || this.transBusy) {
+      this.transToken++;
+      this.transShown = false;
+      this.transBusy = false;
+      this.transTranslated = false;
+      this.transDone = 0;
+      this.transTotal = 0;
+    }
+  }
+
+  private readerMode(): void {    const t: TabMeta | null = this.cur();
     if (t === null || t.showingHome) {
       this.toast('请先打开一个网页');
       return;
@@ -1434,6 +1653,79 @@ struct Index {
           .padding({ left: 12, right: 4 })
           .backgroundColor(this.pal.surface)
         }
+
+        if (this.transShown) {
+          Column() {
+            Row() {
+              Row() {
+                ZIcon({ path: 'ic_translate', iconSize: 16, color: this.pal.accent })
+              }
+              .width(24)
+              .justifyContent(FlexAlign.Start)
+
+              Text(this.transBusy
+                ? ('必应翻译 · ' + this.transDone.toString() + '/' + this.transTotal.toString() + ' 段')
+                : (this.transDone >= this.transTotal && this.transTotal > 0
+                  ? ('已翻译为' + this.transLang)
+                  : ('已翻译 ' + this.transDone.toString() + ' 段')))
+                .fontSize(12)
+                .fontColor(this.pal.textPrimary)
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+              if (this.transBusy) {
+                Text('停止')
+                  .fontSize(12)
+                  .fontColor(this.pal.textSecondary)
+                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                  .onClick(() => {
+                    this.stopTranslate();
+                  })
+              } else {
+                Text('原文')
+                  .fontSize(12)
+                  .fontColor(this.pal.accent)
+                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                  .onClick(() => {
+                    this.restoreTranslate();
+                  })
+              }
+
+              Row() {
+                ZIcon({ path: 'ic_close', iconSize: 14, color: this.pal.iconMuted })
+              }
+              .width(34)
+              .height(34)
+              .justifyContent(FlexAlign.Center)
+              .onClick(() => {
+                if (this.transBusy) {
+                  this.stopTranslate();
+                }
+                this.transShown = false;
+              })
+            }
+            .width('100%')
+
+            if (this.transBusy) {
+              Row() {
+                Row()
+                  .width((this.transTotal > 0
+                    ? Math.round(this.transDone * 100 / this.transTotal)
+                    : 0).toString() + '%')
+                  .height(2)
+                  .backgroundColor(this.pal.accent)
+              }
+              .width('100%')
+              .height(2)
+              .backgroundColor(this.pal.surfaceAlt)
+            }
+          }
+          .width('100%')
+          .padding({ left: 14, right: 4, top: 6, bottom: 2 })
+          .backgroundColor(this.pal.surface)
+          .border({ width: { top: 1 }, color: this.pal.divider })
+        }
       }
       .layoutWeight(1)
       .width('100%')
@@ -1736,6 +2028,10 @@ struct Index {
           dialogAlert: (title: string, message: string) => {
             this.showAlert(title, message);
           },
+          onNetLog: () => {
+            this.netLogBack = 'settings';
+            this.screen = 'netlog';
+          },
           checkUpdate: () => {
             this.checkUpdate();
           }
@@ -1792,7 +2088,7 @@ struct Index {
         NetLogView({
           pal: this.pal,
           onClose: () => {
-            this.screen = 'browser';
+            this.screen = this.netLogBack;
           },
           toast: (text: string) => {
             this.toast(text);
