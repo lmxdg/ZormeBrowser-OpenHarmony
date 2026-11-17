@@ -1473,11 +1473,13 @@ struct Index {
       this.toast('当前没有页面链接');
       return;
     }
-    this.showOptions('页面操作', ['复制链接', '用其他浏览器打开', '保存离线网页'], (which: number) => {
+    this.showOptions('页面操作', ['复制链接', '翻译网页', '用其他浏览器打开', '保存离线网页'], (which: number) => {
       if (which === 0) {
         this.copyText(t.url);
         this.toast('已复制到剪贴板');
       } else if (which === 1) {
+        this.translatePage();
+      } else if (which === 2) {
         this.handleSpecialUrlExternal(t.url);
       } else {
         this.downloadPage(t.url);
