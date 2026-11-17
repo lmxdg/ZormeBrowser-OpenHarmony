@@ -32,10 +32,10 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/lmxdg/ZormeBrowser-OpenHarmony/releases) 下载 `ZormeBrowser-1.1.0.hap`，通过 hdc 安装：
+前往 [Releases](https://github.com/lmxdg/ZormeBrowser-OpenHarmony/releases) 下载 `ZormeBrowser-1.1.1.hap`，通过 hdc 安装：
 
 ```bash
-hdc install ZormeBrowser-1.1.0.hap
+hdc install ZormeBrowser-1.1.1.hap
 ```
 
 也可以在应用内检查更新：**菜单 → 设置 → 关于 → 检查更新**，会读取 GitHub Releases 最新版本号并与本地版本比较，支持切换下载加速站（直连 / ghfast.top / ghproxy.net）。
@@ -51,6 +51,7 @@ hdc install ZormeBrowser-1.1.0.hap
 - 长按地址栏：复制链接 / 用其他浏览器打开 / 保存离线网页
 
 **效率工具**
+- **工具栏**：底部菜单 4 列 × 2 行，左右滑动翻页；设置固定在标题栏，翻译网页、网络日志、网页源码等 16 个入口一屏可达
 - **AI 助手**：OpenAI 兼容 Chat Completions 协议，流式输出、随时停止、长按复制、一键清空
   - 内置预设：智谱、DeepSeek、阿里云百炼、基元律动、字节跳动（火山方舟）、自定义
   - API 地址 / Key / 模型均可在设置中修改，Key 仅保存在本机
@@ -64,6 +65,7 @@ hdc install ZormeBrowser-1.1.0.hap
   - 自动跳过代码块、输入框、`translate=no` 元素与纯中文段落
   - 逐批翻译并显示进度，可随时停止；一键「原文」还原；切回标签仍保留翻译条
   - 无需 API Key：复用必应翻译网页的公开接口，token 本地缓存并自动刷新
+  - 批次用 `@@@` 分隔（必应会合并换行），行数对不上时自动逐条翻译，连续失败即熔断
 
 **隐私与外观**
 - 广告与追踪域名拦截（内置规则表 `rawfile/ad_hosts.txt`，设置中可开关）
@@ -116,7 +118,7 @@ ohpm install
 
 1. `hvigor assembleHap --mode module -p buildMode=release`
 2. 用 SDK 自带 `hap-sign-tool.jar` 对 `signature/profile.json` 签出 `signature/profile.p7b`
-3. 对未签名 HAP 签出 `dist/ZormeBrowser-1.0.0.hap`，并执行 `verify-app` 校验
+3. 对未签名 HAP 签出 `dist/ZormeBrowser-<版本号>.hap`，并执行 `verify-app` 校验
 
 仓库内 `signature/` 只保存描述文件模板（不含私钥），签名密钥直接使用 OpenHarmony SDK 公共测试证书（`toolchains/lib/OpenHarmony.p12`，口令 `123456`），**仅供开发调试与自用侧载**；上架应用市场请替换为自己的证书与 Profile。
 
@@ -159,6 +161,24 @@ ZormeBrowser-OpenHarmony/
 | 标签预览截图 | 支持 | 不支持（ArkWeb 未开放跨进程截图接口） |
 | 下载管理 | DownloadManager | ArkWeb `WebDownloadDelegate` + 应用沙箱目录 |
 | 安装包 | APK ~2.6MB | HAP ~500KB |
+
+## 更新日志
+
+### 1.1.1
+- **修复网页翻译在整页场景下不可用**
+  - 注入后校验 `window.__zormeT`，未挂载时自动重试（最多 3 次）
+  - 兼容 ArkWeb 把 `runJavaScript` 字符串结果二次编码的返回格式
+  - 批量翻译改用 `@@@` 分隔，必应合并换行时不再出现行数错位
+  - 对不上时逐条翻译（3 并发），连续失败 6 次熔断，不再指数级放大请求
+  - `runJavaScript` 增加超时保护，页面卡住时不会一直停在「0/0 段」
+  - 必应主站异常时自动切换 `www.bing.com`，失败提示带上具体 HTTP 状态
+- **工具栏改为左右翻页**：4 列 × 2 行 / 页，设置固定在标题栏
+- **网络日志重新放回工具栏**
+- 版本号 1.1.1（versionCode 1010100）
+
+### 1.1.0
+- 新增网页翻译（必应翻译，12 种目标语言，可还原原文）
+- 菜单新增「翻译网页」入口，设置中可选择目标语言
 
 ## 隐私
 

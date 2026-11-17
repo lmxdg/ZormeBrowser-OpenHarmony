@@ -45,9 +45,10 @@ export class BingTranslate {
 
   private static readonly UA: string = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
     + 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-  private static readonly HOME: string = 'https://cn.bing.com/translator';
-  private static readonly API: string = 'https://cn.bing.com/ttranslatev3';
+  /** 备用站点：部分地区 cn.bing.com 会跳转或返回不完整页面 */
+  private static readonly HOSTS: string[] = ['https://cn.bing.com', 'https://www.bing.com'];
 
+  private static host: string = 'https://cn.bing.com';
   private static ig: string = '';
   private static token: string = '';
   private static key: string = '';
@@ -95,6 +96,16 @@ export class BingTranslate {
       out.error = '翻译结果未对齐';
       return out;
     }
+    let filled: number = 0;
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].length > 0) {
+        filled++;
+      }
+    }
+    if (filled === 0) {
+      out.error = BingTranslate.lastError.length > 0 ? BingTranslate.lastError : '必应翻译没有返回结果';
+      return out;
+    }
     out.texts = parts;
     out.ok = true;
     return out;
@@ -102,45 +113,97 @@ export class BingTranslate {
 
   /** 把一组文本翻译并对齐到相同长度 */
   private static async pieces(texts: string[], to: string): Promise<string[]> {
-    let text: string | null = await BingTranslate.post(texts.join('\n'), to);
+    if (texts.length === 1) {
+      return await BingTranslate.each(texts, to);
+    }
+    // 必应会把换行合并成一段，导致按 \n 对齐失败；
+    // 改用不会被翻译改写的分隔标记 @@@，实测 20 段仍能一一对应。
+    let joiner: string = '\n@@@\n';
+    for (let i = 0; i < texts.length; i++) {
+      if (texts[i].indexOf('@@@') >= 0) {
+        joiner = '';
+        break;
+      }
+    }
+    if (joiner.length === 0) {
+      return await BingTranslate.each(texts, to);
+    }
+    let text: string | null = await BingTranslate.post(texts.join(joiner), to);
     if (text === null) {
       // token 可能过期，强制刷新后重试一次
       if (await BingTranslate.ensure(true)) {
-        text = await BingTranslate.post(texts.join('\n'), to);
+        text = await BingTranslate.post(texts.join(joiner), to);
       }
     }
-    // 请求本身失败：不再二分放大请求量，直接保留原文
-    if (text === null || text.length === 0) {
-      const blank: string[] = [];
-      for (let i = 0; i < texts.length; i++) {
-        blank.push('');
+    if (text !== null && text.length > 0) {
+      const parts: string[] = text.split('@@@');
+      if (parts.length === texts.length) {
+        const out: string[] = [];
+        for (let i = 0; i < parts.length; i++) {
+          out.push(parts[i].split('\n').join(' ').trim());
+        }
+        return out;
       }
-      return blank;
-    }
-    const parts: string[] = text.split('\n');
-    if (parts.length === texts.length) {
-      const out: string[] = [];
-      for (let i = 0; i < parts.length; i++) {
-        out.push(parts[i].trim());
+      // 个别模型会把标记吃掉但保留换行，再按行试一次
+      const lines: string[] = text.split('\n');
+      if (lines.length === texts.length) {
+        const out2: string[] = [];
+        for (let i = 0; i < lines.length; i++) {
+          out2.push(lines[i].trim());
+        }
+        return out2;
       }
-      return out;
     }
-    if (texts.length === 1) {
-      const one: string[] = [];
-      one.push(text.split('\n').join(' ').trim());
-      return one;
+    // 仍对不上：退化为逐条翻译，并发 3 条，
+    // 避免旧版“二分递归”在整批合并时把请求量翻倍放大。
+    return await BingTranslate.each(texts, to);
+  }
+
+  /** 逐条翻译，最多 3 条并发；连续失败 6 次即熔断，避免被限流后空转 */
+  private static async each(texts: string[], to: string): Promise<string[]> {
+    const total: number = texts.length;
+    const out: string[] = [];
+    for (let i = 0; i < total; i++) {
+      out.push('');
     }
-    const mid: number = Math.floor(texts.length / 2);
-    const left: string[] = await BingTranslate.pieces(texts.slice(0, mid), to);
-    const right: string[] = await BingTranslate.pieces(texts.slice(mid), to);
-    const merged: string[] = [];
-    for (let i = 0; i < left.length; i++) {
-      merged.push(left[i]);
+    let cursor: number = 0;
+    let fails: number = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < total) {
+        if (fails >= 6) {
+          return;
+        }
+        const i: number = cursor;
+        cursor++;
+        let t: string | null = await BingTranslate.post(texts[i], to);
+        if (t === null) {
+          await BingTranslate.wait(260);
+          if (await BingTranslate.ensure(true)) {
+            t = await BingTranslate.post(texts[i], to);
+          }
+        }
+        if (t === null) {
+          fails++;
+          continue;
+        }
+        out[i] = t.split('\n').join(' ').trim();
+      }
+    };
+    const jobs: Promise<void>[] = [];
+    const n: number = total < 3 ? total : 3;
+    for (let k = 0; k < n; k++) {
+      jobs.push(worker());
     }
-    for (let i = 0; i < right.length; i++) {
-      merged.push(right[i]);
-    }
-    return merged;
+    await Promise.all(jobs);
+    return out;
+  }
+
+  private static wait(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        resolve();
+      }, ms);
+    });
   }
 
   /** 探测源语言（翻译一小段即可），返回语言代码；失败返回空串 */
@@ -178,31 +241,53 @@ export class BingTranslate {
   }
 
   private static apiUrl(): string {
-    return BingTranslate.API + '?isVertical=1&&IG=' + BingTranslate.ig
+    return BingTranslate.host + '/ttranslatev3?isVertical=1&&IG=' + BingTranslate.ig
       + '&IID=translator.5023&SFX=2';
+  }
+
+  private static homeUrl(): string {
+    return BingTranslate.host + '/translator';
   }
 
   private static headers(): Record<string, string> {
     const h: Record<string, string> = {};
     h['Content-Type'] = 'application/x-www-form-urlencoded';
     h['User-Agent'] = BingTranslate.UA;
-    h['Referer'] = BingTranslate.HOME;
-    h['Origin'] = 'https://cn.bing.com';
+    h['Referer'] = BingTranslate.homeUrl();
+    h['Origin'] = BingTranslate.host;
     h['Accept'] = '*/*';
     h['Accept-Language'] = 'zh-CN,zh;q=0.9';
     return h;
   }
 
-  /** 取 IG 与 token（缓存 30 分钟） */
+  /** 取 IG 与 token（缓存 30 分钟）；主站失败时自动切到备用站点 */
   private static async ensure(force: boolean): Promise<boolean> {
     const now: number = Date.now();
     if (!force && BingTranslate.ig.length > 0 && BingTranslate.token.length > 0
       && now - BingTranslate.stamp < 1800000) {
       return true;
     }
+    const start: number = BingTranslate.indexOfHost(BingTranslate.host);
+    for (let i = 0; i < BingTranslate.HOSTS.length; i++) {
+      const candidate: string = BingTranslate.HOSTS[(start + i) % BingTranslate.HOSTS.length];
+      if (await BingTranslate.fetchToken(candidate, now)) {
+        BingTranslate.host = candidate;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static indexOfHost(host: string): number {
+    const i: number = BingTranslate.HOSTS.indexOf(host);
+    return i < 0 ? 0 : i;
+  }
+
+  /** 从指定站点的翻译页里抠出 IG 与 abuse-prevention token/key */
+  private static async fetchToken(host: string, now: number): Promise<boolean> {
     const req: http.HttpRequest = http.createHttp();
     try {
-      const resp: http.HttpResponse = await req.request(BingTranslate.HOME, {
+      const resp: http.HttpResponse = await req.request(host + '/translator', {
         method: http.RequestMethod.GET,
         header: {
           'User-Agent': BingTranslate.UA,
@@ -214,15 +299,20 @@ export class BingTranslate {
         readTimeout: 25000
       });
       if (resp.responseCode !== 200) {
-        BingTranslate.lastError = '必应翻译页面无法访问';
+        BingTranslate.lastError = '必应翻译页面无法访问（HTTP ' + resp.responseCode.toString() + '）';
         return false;
       }
       const html: string = resp.result as string;
-      const igm: RegExpExecArray | null = /IG:"([0-9A-Fa-f]{16,40})"/.exec(html);
+      if (html === undefined || html === null || html.length === 0) {
+        BingTranslate.lastError = '必应翻译页面返回为空';
+        return false;
+      }
+      // IG 在不同站点/灰度版本里格式略有差异，放宽匹配
+      const igm: RegExpExecArray | null = /IG\s*:\s*"([0-9A-Za-z_\-]{6,80})"/.exec(html);
       const pm: RegExpExecArray | null =
-        /params_AbusePreventionHelper\s*=\s*\[(\d+),\s*"([^"]+)"/.exec(html);
+        /params_AbusePreventionHelper\s*=\s*\[\s*(\d+)\s*,\s*"([^"]+)"/.exec(html);
       if (igm === null || pm === null) {
-        BingTranslate.lastError = '必应翻译接口已变更';
+        BingTranslate.lastError = '必应翻译接口已变更（未找到 IG/token）';
         return false;
       }
       BingTranslate.ig = igm[1];
@@ -257,13 +347,25 @@ export class BingTranslate {
         connectTimeout: 15000,
         readTimeout: 40000
       });
+      // token 过期/被限流时返回 400/403/429，交给上层刷新 token 重试
+      if (resp.responseCode === 400 || resp.responseCode === 403
+        || resp.responseCode === 429 || resp.responseCode === 205) {
+        BingTranslate.lastError = '必应翻译拒绝请求（HTTP ' + resp.responseCode.toString() + '）';
+        return null;
+      }
       if (resp.responseCode !== 200) {
+        BingTranslate.lastError = '必应翻译请求失败（HTTP ' + resp.responseCode.toString() + '）';
         return null;
       }
       const raw: string = resp.result as string;
-      const blocks: TransBlock[] = JSON.parse(raw) as TransBlock[];
-      if (blocks.length === 0) {
+      if (raw === undefined || raw === null || raw.length === 0) {
         return '';
+      }
+      const blocks: TransBlock[] = JSON.parse(raw) as TransBlock[];
+      if (!Array.isArray(blocks) || blocks.length === 0) {
+        // 返回的是错误对象而不是数组：多半是 token 失效
+        BingTranslate.lastError = '必应翻译返回了错误信息';
+        return null;
       }
       const tr: TransText[] | undefined = blocks[0].translations;
       if (tr === undefined || tr.length === 0) {
@@ -272,6 +374,7 @@ export class BingTranslate {
       const val: string = tr[0].text;
       return val !== undefined && val !== null ? val : '';
     } catch (e) {
+      BingTranslate.lastError = '必应翻译请求异常';
       return null;
     } finally {
       req.destroy();

@@ -24,6 +24,11 @@ export class TranslateScript {
     return TranslateScript.lib;
   }
 
+  /** 探测注入是否成功：返回 "object" 表示脚本已挂到 window 上 */
+  static probe(): string {
+    return 'typeof window.__zormeT';
+  }
+
   /** 收集页面文本节点，返回 JSON 字符串 */
   static collect(): string {
     return 'window.__zormeT?__zormeT.collect():"{\\"ok\\":false}"';

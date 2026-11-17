@@ -765,35 +765,84 @@ struct Index {
   }
 
   /** 在页面里执行一段 JS，返回值转成字符串 */
-  private jsRun(ctrl: webview.WebviewController, js: string): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
+  private jsRun(ctrl: webview.WebviewController, js: string, timeout: number = 3500): Promise<string> {
+    return new Promise<string>((resolve) => {
+      let done: boolean = false;
+      const timer: number = setTimeout(() => {
+        if (!done) {
+          done = true;
+          resolve('');
+        }
+      }, timeout);
+      const finish = (value: string): void => {
+        if (done) {
+          return;
+        }
+        done = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
       try {
         ctrl.runJavaScript(js, (err: Error, value: string) => {
-          resolve(value !== undefined && value !== null ? value : '');
+          finish(value !== undefined && value !== null ? value : '');
         });
       } catch (e) {
-        resolve('');
+        finish('');
       }
     });
   }
 
   private parsePageTexts(raw: string): PageTexts {
     const empty: PageTexts = { ok: false, total: 0, items: [] };
-    if (!raw || raw.length === 0) {
+    if (raw === undefined || raw === null) {
       return empty;
     }
+    let text: string = raw.trim();
+    if (text.length === 0 || text === 'null' || text === 'undefined') {
+      return empty;
+    }
+    // runJavaScript 在不同 ArkWeb 版本上可能把字符串结果再包一层引号（双重编码），
+    // 这里最多解两层，避免整页翻译因为一个引号而判失败。
+    for (let pass = 0; pass < 2; pass++) {
+      if (text.length >= 2 && text.charAt(0) === '"' && text.charAt(text.length - 1) === '"') {
+        try {
+          const inner: string = JSON.parse(text) as string;
+          if (typeof inner === 'string' && inner.length > 0) {
+            text = inner;
+            continue;
+          }
+        } catch (e) {
+        }
+      }
+      break;
+    }
     try {
-      const obj: PageTexts = JSON.parse(raw) as PageTexts;
+      const obj: PageTexts = JSON.parse(text) as PageTexts;
       if (obj === null || obj === undefined) {
         return empty;
       }
       if (obj.items === undefined || obj.items === null) {
         obj.items = [];
       }
+      if (obj.total === undefined || obj.total === null || obj.total === 0) {
+        obj.total = obj.items.length;
+      }
+      // 个别版本返回里没有 ok 字段，只要拿到了文本就继续
+      if (!obj.ok && obj.items.length > 0) {
+        obj.ok = true;
+      }
       return obj;
     } catch (e) {
       return empty;
     }
+  }
+
+  private wait(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        resolve();
+      }, ms);
+    });
   }
 
   /** 用必应翻译整页：抽取文本节点 → 分批翻译 → 回填 */
@@ -807,10 +856,14 @@ struct Index {
       this.toast('正在翻译，请稍候');
       return;
     }
+    if (!Prefs.javaScript()) {
+      this.toast('请先在设置中开启 JavaScript');
+      return;
+    }
     const ctx = getContext(this) as common.UIAbilityContext;
     const lib: string = TranslateScript.libScript(ctx);
     if (lib.length === 0) {
-      this.toast('翻译脚本加载失败');
+      this.toast('翻译脚本缺失，请重新安装应用');
       return;
     }
     const ctrl: webview.WebviewController = this.controllerOf(tab.id);
@@ -823,20 +876,40 @@ struct Index {
     this.transTranslated = false;
     const token: number = ++this.transToken;
 
-    // 清掉上次的译文，再注入脚本
+    // 清掉上次的译文，再注入脚本；注入后确认 __zormeT 真的挂上了，
+    // 避免页面还在加载时 runJavaScript 静默失败，表现为“所有页面都翻不了”。
     await this.jsRun(ctrl, TranslateScript.restore());
-    await this.jsRun(ctrl, lib);
+    let injected: boolean = false;
+    for (let i = 0; i < 3 && !injected; i++) {
+      await this.jsRun(ctrl, lib);
+      const probe: string = await this.jsRun(ctrl, TranslateScript.probe(), 1500);
+      injected = probe.indexOf('object') >= 0;
+      if (!injected) {
+        await this.wait(180);
+      }
+    }
     if (token !== this.transToken) {
       return;
     }
-    const raw: string = await this.jsRun(ctrl, TranslateScript.collect());
+    if (!injected) {
+      this.endTranslate(false);
+      this.toast('无法在当前页面注入翻译脚本，请刷新后重试');
+      return;
+    }
+    let raw: string = await this.jsRun(ctrl, TranslateScript.collect());
+    let page: PageTexts = this.parsePageTexts(raw);
+    if (!page.ok) {
+      // 页面较大时首次执行可能来不及返回，稍等再取一次
+      await this.wait(150);
+      raw = await this.jsRun(ctrl, TranslateScript.collect());
+      page = this.parsePageTexts(raw);
+    }
     if (token !== this.transToken) {
       return;
     }
-    const page: PageTexts = this.parsePageTexts(raw);
     if (!page.ok) {
       this.endTranslate(false);
-      this.toast('当前页面无法翻译');
+      this.toast(raw.length === 0 ? '页面无响应，请刷新后重试' : '当前页面无法翻译');
       return;
     }
     if (page.total <= 0) {
