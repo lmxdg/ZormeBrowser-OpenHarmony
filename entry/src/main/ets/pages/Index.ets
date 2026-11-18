@@ -17,6 +17,7 @@ import { SslInfo } from '../model/SslInfo';
 import { BingTranslate, TransResult } from '../model/BingTranslate';
 import { TranslateScript } from '../model/TranslateScript';
 import { UpdateChecker } from '../model/UpdateChecker';
+import { UserscriptStore, UserscriptInjector, GmBridge } from '../model/UserscriptStore';
 import { TabWeb, TabCallbacks } from '../components/TabWeb';
 import { SettingsView } from '../components/SettingsView';
 import { AiChatView } from '../components/AiChatView';
@@ -25,6 +26,7 @@ import { SourceView } from '../components/SourceView';
 import { NetLogView } from '../components/NetLogView';
 import { HomeView } from '../components/HomeView';
 import { MenuSheet } from '../components/MenuSheet';
+import { UserscriptView } from '../components/UserscriptView';
 import { AddressOverlay } from '../components/AddressOverlay';
 import { TabsOverlay } from '../components/TabsOverlay';
 import { ZIcon } from '../components/ZIcon';
@@ -95,6 +97,8 @@ struct Index {
   /** 翻译任务代号，自增即取消 */
   private transToken: number = 0;
   private netLogBack: string = 'browser';
+  /** 油猴 GM 桥：所有标签页共用，注入点与回调经此中转 */
+  private gmBridge: GmBridge = new GmBridge();
 
   private webCallbacks: TabCallbacks = {
     onAttached: (id: number) => {
@@ -168,9 +172,22 @@ struct Index {
     try {
       await Prefs.init(ctx);
       await Store.init(ctx);
+      await UserscriptStore.init(ctx);
       AdBlocker.init(ctx);
     } catch (e) {
     }
+    // 油猴 GM 桥的 UI 动作回调
+    GmBridge.onClipboard = (text: string) => {
+      this.copyText(text);
+    };
+    GmBridge.onNotify = (text: string) => {
+      this.toast(text);
+    };
+    GmBridge.onOpenUrl = (url: string) => {
+      if (url.startsWith('http')) {
+        this.createTab(false, url);
+      }
+    };
     this.applyTheme();
     this.restoreOrCreateTabs();
     this.ready = true;
@@ -331,6 +348,10 @@ struct Index {
       meta.translated = false;
       this.resetTrans();
     }
+    // 油猴：document-start 脚本随页面启动注入
+    if (url.startsWith('http')) {
+      UserscriptInjector.inject(this.controllerOf(id), url, true);
+    }
     this.touchTabs();
   }
 
@@ -351,6 +372,10 @@ struct Index {
     if (!meta.error && !meta.incognito && Prefs.recordHistory()
       && meta.url && meta.url.startsWith('http')) {
       Store.addHistory(meta.title, meta.url);
+    }
+    // 油猴：document-end / document-idle 脚本随页面完成注入
+    if (meta.url && meta.url.startsWith('http')) {
+      UserscriptInjector.inject(this.controllerOf(id), meta.url, false);
     }
     this.refreshTabState(id);
     this.saveSession();
@@ -707,6 +732,8 @@ struct Index {
     } else if (action === 'netlog') {
       this.netLogBack = 'browser';
       this.screen = 'netlog';
+    } else if (action === 'userscript') {
+      this.screen = 'userscript';
     } else if (action === 'ssl') {
       this.showSslInfo();
     } else if (action === 'share') {
@@ -1604,7 +1631,8 @@ struct Index {
             textZoom: Prefs.textZoom(),
             jsEnabled: Prefs.javaScript(),
             ua: Prefs.uaString(''),
-            callbacks: this.webCallbacks
+            callbacks: this.webCallbacks,
+            gmBridge: this.gmBridge
           })
         }, (tab: TabMeta) => tab.id.toString())
 
@@ -2107,6 +2135,9 @@ struct Index {
             this.netLogBack = 'settings';
             this.screen = 'netlog';
           },
+          onUserscript: () => {
+            this.screen = 'userscript';
+          },
           checkUpdate: () => {
             this.checkUpdate();
           }
@@ -2167,6 +2198,27 @@ struct Index {
           },
           toast: (text: string) => {
             this.toast(text);
+          }
+        })
+      } else if (this.screen === 'userscript') {
+        UserscriptView({
+          pal: this.pal,
+          onClose: () => {
+            this.screen = 'browser';
+          },
+          toast: (text: string) => {
+            this.toast(text);
+          },
+          confirm: (title: string, message: string, positive: string, cb: () => void) => {
+            this.showConfirm(title, message, positive, cb);
+          },
+          options: (title: string, items: string[], danger: boolean,
+            cb: (index: number) => void) => {
+            this.showOptions(title, items, cb, danger);
+          },
+          input: (title: string, hint: string, initial: string,
+            cb: (text: string) => void) => {
+            this.showInput(title, hint, initial, '保存', cb);
           }
         })
       }

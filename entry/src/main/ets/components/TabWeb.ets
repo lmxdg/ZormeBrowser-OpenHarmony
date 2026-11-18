@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { picker } from '@kit.CoreFileKit';
 import { Utils } from '../common/Utils';
+import { GmBridge } from '../model/UserscriptStore';
 
 /** Web 事件回调（全部可选，便于默认空实现） */
 export interface TabCallbacks {
@@ -37,6 +38,8 @@ export struct TabWeb {
   @Prop jsEnabled: boolean = true;
   @Prop @Watch('onUaChanged') ua: string = '';
   callbacks: TabCallbacks = {};
+  /** 油猴 GM 桥（由 Index 传入，跨标签页共享同一实例） */
+  gmBridge: GmBridge = new GmBridge();
   private downloadDelegate: webview.WebDownloadDelegate = new webview.WebDownloadDelegate();
   private attached: boolean = false;
 
@@ -114,8 +117,16 @@ export struct TabWeb {
       .horizontalScrollBarAccess(false)
       .verticalScrollBarAccess(false)
       .visibility(this.active ? Visibility.Visible : Visibility.Hidden)
+      .javaScriptProxy({
+        name: 'ZormeGm',
+        methodList: ['gmSet', 'gmDelete', 'clipboard', 'notify', 'openInTab',
+          'download', 'xhr'],
+        controller: this.controller,
+        object: this.gmBridge
+      })
       .onControllerAttached(() => {
         this.attached = true;
+        this.gmBridge.setController(this.controller);
         if (this.ua.length > 0) {
           try {
             this.controller.setCustomUserAgent(this.ua);

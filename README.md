@@ -51,7 +51,12 @@ hdc install ZormeBrowser-1.1.1.hap
 - 长按地址栏：复制链接 / 用其他浏览器打开 / 保存离线网页
 
 **效率工具**
-- **工具栏**：底部菜单 4 列 × 2 行，左右滑动翻页；设置固定在标题栏，翻译网页、网络日志、网页源码等 16 个入口一屏可达
+- **工具栏**：底部菜单 4 列 × 2 行，左右滑动翻页；设置固定在标题栏，翻译网页、网络日志、网页源码、油猴脚本等 17 个入口一屏可达
+- **油猴脚本（userscript）**：菜单「油猴脚本」进入管理页，安装 / 启用 / 停用 / 删除、搜索脚本；支持粘贴脚本代码或输入 `.user.js` 直链自动下载安装
+  - 解析 `@name` / `@namespace` / `@version` / `@match` / `@include` / `@exclude` / `@run-at` 等元数据，`@match` 按 Chrome 扩展 pattern 风格匹配，`@include` 支持 glob 与 `/正则/`
+  - `@run-at document-start` 在页面启动时注入，其余在页面加载完成后注入
+  - 内置 GM_* API：`GM_getValue` / `GM_setValue` / `GM_deleteValue` / `GM_listValues`（按脚本隔离、preferences 本地持久化）、`GM_addStyle`、`GM_setClipboard`、`GM_notification`、`GM_openInTab`、`GM_download`、`GM_xmlhttpRequest`（原生 http 请求，不受页面 CORS 限制）、`GM_info`、`unsafeWindow`，兼容 `GM.*` 对象形式
+  - 脚本与 GM 数据仅保存在本机 preferences，不上传任何数据
 - **AI 助手**：OpenAI 兼容 Chat Completions 协议，流式输出、随时停止、长按复制、一键清空
   - 内置预设：智谱、DeepSeek、阿里云百炼、基元律动、字节跳动（火山方舟）、自定义
   - API 地址 / Key / 模型均可在设置中修改，Key 仅保存在本机
@@ -163,6 +168,16 @@ ZormeBrowser-OpenHarmony/
 | 安装包 | APK ~2.6MB | HAP ~500KB |
 
 ## 更新日志
+
+### 1.1.5
+- **新增油猴脚本（userscript）支持**
+  - 菜单新增「油猴脚本」入口，设置页「关于」分区新增「油猴脚本」管理入口
+  - 管理页支持粘贴代码 / `.user.js` 直链安装，启用 / 停用开关、搜索、查看代码、删除
+  - `@match` / `@include` / `@exclude` / `@run-at` 解析与匹配，document-start / document-end 两种注入时机
+  - GM_* API 垫片：数据按脚本隔离并持久化；`GM_xmlhttpRequest` 走原生 http、不受页面 CORS 限制
+  - Web 组件注册 `ZormeGm` javaScriptProxy，承载 GM 数据写入、剪贴板、通知与新标签页动作
+- 版本号与 Android 版统一为 1.1.5
+- 构建工具链：hvigor 与工程配置对齐（`@ohos/hvigor-ohos-plugin` 6.26.2），适配 OpenHarmony SDK 26.0.0 命令行构建
 
 ### 1.1.1
 - **修复网页翻译在整页场景下不可用**

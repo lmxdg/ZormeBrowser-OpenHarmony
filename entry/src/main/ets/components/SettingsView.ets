@@ -9,6 +9,7 @@ import { NetLog } from '../model/NetLog';
 import { Agreement } from '../model/Agreement';
 import { AiProvider } from '../model/AiProvider';
 import { BingTranslate } from '../model/BingTranslate';
+import { UserscriptStore } from '../model/UserscriptStore';
 import { ZIcon } from './ZIcon';
 import { ZSwitch } from './ZSwitch';
 
@@ -127,6 +128,8 @@ export struct SettingsView {
   dialogAlert: (title: string, message: string) => void = () => {
   };
   onNetLog: () => void = () => {
+  };
+  onUserscript: () => void = () => {
   };
   checkUpdate: () => void = () => {
   };
@@ -541,7 +544,16 @@ export struct SettingsView {
           })
           Divider().color(this.pal.divider).strokeWidth(1).margin({ left: 20 })
           SettingTextRow({
-            pal: this.pal, title: '检查更新', desc: '拉取 GitHub 最新发布版本对比', value: '1.1.1',
+            pal: this.pal, title: '油猴脚本', desc: '安装 / 启用 / 停用油猴（userscript）脚本',
+            value: UserscriptStore.enabledCount() + ' / '
+              + UserscriptStore.all().length + ' 已启用',
+            onTap: () => {
+              this.onUserscript();
+            }
+          })
+          Divider().color(this.pal.divider).strokeWidth(1).margin({ left: 20 })
+          SettingTextRow({
+            pal: this.pal, title: '检查更新', desc: '拉取 GitHub 最新发布版本对比', value: '1.1.5',
             onTap: () => {
               this.checkUpdate();
             }
@@ -550,12 +562,13 @@ export struct SettingsView {
           SettingTextRow({
             pal: this.pal, title: '关于 Zorme', desc: '基于 OpenHarmony ArkWeb 的轻量浏览器', value: '',
             onTap: () => {
-              this.dialogAlert('Zorme 浏览器', '版本 1.1.1\n\n'
+              this.dialogAlert('Zorme 浏览器', '版本 1.1.5\n\n'
                 + '基于 OpenHarmony ArkWeb 构建的轻量浏览器。\n\n'
                 + '· 多标签浏览与标签恢复\n· 广告与追踪域名拦截\n'
                 + '· 夜间模式 / 无图模式 / 浏览器标识(UA)\n'
                 + '· 阅读模式与页内查找\n· 网页源码查看、网络日志抓取\n'
                 + '· 网页翻译（必应翻译，12 种目标语言）\n'
+                + '· 油猴脚本（userscript）支持\n'
                 + '· 无痕浏览、书签、历史、下载管理\n· 底部地址栏与自绘弹窗体系\n'
                 + '· 应用内检测更新\n\n'
                 + '本项目为开源软件，无云服务、无账号体系，所有数据仅保存在本机。\n'

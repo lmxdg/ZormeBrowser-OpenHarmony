@@ -40,6 +40,7 @@ export struct MenuSheet {
     // 第一页留给高频与 1.1 新增能力，夜间/无图等开关放第二页
     list.push(new MenuTile('ic_translate', '翻译网页', 'translate'));
     list.push(new MenuTile('ic_network', '网络日志', 'netlog'));
+    list.push(new MenuTile('ic_code', '油猴脚本', 'userscript'));
     list.push(new MenuTile('ic_moon', this.night ? '日间' : '夜间', 'night'));
     list.push(new MenuTile('ic_no_image', this.noImage ? '显示图片' : '无图', 'noimage'));
     list.push(new MenuTile('ic_desktop', this.desktop ? '手机版' : '桌面版', 'desktop'));
